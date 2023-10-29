@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Get the width of the terminal window
+WIDTH=$(tput cols)
+
+# Set the repository name and the target directory and txt file
+TARGET_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+
+# Check for operating system and set global variables accordingly
+OS=$(uname -s)
+if [ "$OS" == "Linux" ]
+then
+    PARAVIEW_DIR="$TARGET_DIR"
+fi
+NAME="$PARAVIEW_DIR"/ParaView
+if [ -d "$NAME"* ]
+then
+    rm -R "$NAME"*
+fi
+
+NAME="$PARAVIEW_DIR"/plugins
+if [ -d "$NAME" ]
+then
+    rm -fr "$NAME"
+fi
+
+if [ -f "$PARAVIEW_DIR"/*"txt" ]
+then
+    rm "$PARAVIEW_DIR"/*"txt"
+fi
+
+if [ -f "$HOME/bin/paraview" ]
+then
+    rm "$HOME/bin/paraview"
+fi

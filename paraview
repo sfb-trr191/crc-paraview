@@ -1,0 +1,233 @@
+#!/bin/bash
+
+# Get the width of the terminal window
+WIDTH=$(tput cols)
+
+# Set the repository name and the target directory and txt file
+REPO_NAME="plugins"
+TARGET_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+TXT="version_control.txt"
+PARAVIEW_DIR="$TARGET_DIR"
+PARAVIEW_NAME="paraview"
+
+# Check for operating system and set global variables accordingly
+OS=$(uname -s)
+if [ "$OS" == "Linux" ]
+then
+    FILE_TYPE=".tar.gz"
+
+    # check if paraview is already a bash command
+    if ! command -v paraview &> /dev/null; then
+        echo "Adding this file to Path"
+        if [ ! -d ~/bin ]; then
+            mkdir ~/bin
+        fi
+
+        bashrc_file="$HOME/.bashrc"
+        export_statement='export PATH="$PATH:$HOME/bin"'
+
+        if ! grep -Fxq "$export_statement" "$bashrc_file"; then
+            echo "$export_statement" >> "$bashrc_file"
+        fi
+
+        export PATH=$PATH:$HOME/bin
+        source ~/.bashrc
+
+        ln -s $TARGET_DIR/paraview ~/bin/paraview
+        chmod +x ~/bin/paraview
+    else
+        TARGET_DIR=$(readlink -f ~/bin/paraview)
+        PARAVIEW_DIR=$(dirname $(readlink -f ~/bin/paraview))
+    fi
+fi
+
+if [ "$OS" == "Darwin" ]
+then
+    FILE_TYPE=".dmg"
+fi
+
+
+# check if the paraview parameters are already saved
+if ! [ -f "$PARAVIEW_DIR/$TXT" ]
+then
+    # Replace this URL with the website you want to extract text from
+    URL="https://www.paraview.org/files/"
+
+    # Download the HTML source code using curl and extract the text using grep and sed
+    TEXT=$(curl -s $URL | grep -o '<a href="[^"]*">v[^<]*</a>' | sed 's/^<a href="[^"]*">v\([^<]*\)<\/a>$/\1/')
+
+    # replace forward slashes with spaces
+    TEXT=${TEXT//\//}
+
+    # replace newline characters with spaces
+    TEXT=${TEXT//$'\n'/ }
+
+    # Print the extracted text
+    read -r -a versions <<< "$TEXT"
+
+    # initialize a new string variable
+    VERSIONS=()
+
+    # Start text
+    echo "There are multiple possible Versions of paraview to choose, we recommend the newest:"
+
+    # Print a line of hyphens that spans the width of the terminal
+    printf '%*s\n' "$WIDTH" '' | tr ' ' '-'
+
+    # Function to split the version number into components
+    split_version() {
+        IFS='.' read -r -a components <<< "$1"
+    }
+
+    # loop through the array and append each word that is greater than 0 to the new string
+    for version in "${versions[@]}"; do
+        split_version "$version"
+        major="${components[0]}"
+        minor="${components[1]}"
+        if (( major > 5 || (major == 5 && minor > 9) )); then
+            VERSIONS+=("$version")
+            echo "$version"
+        fi      
+    done
+
+    # Print a line of hyphens that spans the width of the terminal
+    printf '%*s\n' "$WIDTH" '' | tr ' ' '-'
+
+    # loop until a valid version is entered
+    while true; do
+        # read user input
+        read -p "Enter the desired version: " VERSION
+
+        # check if the version is in the list
+        if [[ " ${VERSIONS[*]} " == *" $VERSION "* ]]; then
+            break
+        else
+            echo "$VERSION is not in the list. Please enter another version."
+        fi
+    done
+
+    # write some text to a file
+    echo "$VERSION" > "$PARAVIEW_DIR/$TXT"
+
+    # Replace this URL with the website you want to extract text from
+    URL="https://www.paraview.org/files/v$VERSION/"
+
+    # Download the HTML source code using curl and extract the text using grep and sed
+    TEXT=$(curl -s $URL | grep -o "<a href=\"[^\"]*$FILE_TYPE\">[^<]*</a>" | sed "s/^<a href=\"[^\"]*$FILE_TYPE\">\([^<]*\)<\/a>$/\1/")
+
+    # replace forward slashes with spaces
+    TEXT=${TEXT//\//}
+
+    # replace newline characters with spaces
+    TEXT=${TEXT//$'\n'/ }
+
+    # Print the extracted text
+    read -r -a versions <<< "$TEXT"
+
+    # Start text
+    echo "There are multiple possible types of paraview applications to choose:"
+
+    # declare an empty dictionary
+    declare -A DICT
+
+    # set the initial key for the loop
+    key=1
+
+    # Print a line of hyphens that spans the width of the terminal
+    printf '%*s\n' "$WIDTH" '' | tr ' ' '-'
+
+    # iterate over a list of versions
+    for version in "${versions[@]}"; do
+        if [[ $version =~ ("ParaView-"|"paraview-") ]]; then
+            # add the fruit to the dictionary with a value of 1
+            DICT["$key"]=$version
+            # increment the value for the next iteration
+            echo "$key: ${DICT[$key]}" 
+            ((key++))
+        fi 
+    done
+    # Print a line of hyphens that spans the width of the terminal
+    printf '%*s\n' "$WIDTH" '' | tr ' ' '-'
+
+    # read user input
+    read -p "Enter the number of the desired application: " KEY
+    
+    # append more text to the file
+    printf "${DICT[$KEY]}" >> "$PARAVIEW_DIR/$TXT"
+
+    # Print a line of hyphens that spans the width of the terminal
+    printf '%*s\n' "$WIDTH" '' | tr ' ' '-'
+fi
+
+# set global variables from text file   
+PV_VERSION=$(sed -n '1p' "$PARAVIEW_DIR/$TXT")
+PV_FILENAME=$(sed -n '2p' "$PARAVIEW_DIR/$TXT")
+PV_INSTALL_DIR="$PARAVIEW_DIR/ParaView-$PV_VERSION"
+
+# check if paraview is already installed
+if ! [ -d "$PARAVIEW_DIR/ParaView-$PV_VERSION" ]
+then 
+    PV_URL="https://www.paraview.org/files/v$PV_VERSION/$PV_FILENAME"  
+    echo "Paraview is not installed. Installing..."
+    echo "Downloading Paraview..."
+
+    if [ "$OS" == "Linux" ]
+    then
+        wget -q --show-progress -P "$PARAVIEW_DIR" "$PV_URL"
+        echo "Extracting Paraview to $PV_INSTALL_DIR/ ..."
+        mkdir -p "$PV_INSTALL_DIR"
+        tar -xf "$PARAVIEW_DIR/$PV_FILENAME" -C "$PV_INSTALL_DIR" --strip-components=1
+        rm "$PARAVIEW_DIR/$PV_FILENAME"
+    fi
+    if [ "$OS" == "Darwin" ]
+    then
+        PV_PROGRAM=${PV_FILENAME%.*}
+
+        if ! [ -d "$PARAVIEW_DIR/tmp" ]; then
+            mkdir $PARAVIEW_DIR/tmp
+            curl -o $PARAVIEW_DIR/tmp/"$PV_FILENAME" "$PV_URL"
+        fi
+        open -W "$PARAVIEW_DIR/tmp/$PV_FILENAME"
+        cp -R /Volumes/"$PV_PROGRAM"/ParaView*.app "$PARAVIEW_DIR"
+        hdiutil eject /Volumes/"$PV_PROGRAM"
+        rm -R "$PARAVIEW_DIR"/tmp
+    fi
+fi
+
+if [ "$OS" == "Linux" ]
+then
+    # Print a line of hyphens that spans the width of the terminal
+        printf '%*s\n' "$WIDTH" '' | tr ' ' '-'
+
+    # Clone the repository if it doesn't exist, or update it if it does
+    if [ -d "$PARAVIEW_DIR/$REPO_NAME" ]; then
+        echo "Checking for updates to $REPO_NAME for $PV_VERSION and $OS ..."
+        cd "$PARAVIEW_DIR/$REPO_NAME"
+        git fetch --quiet origin
+        LOCAL=$(git rev-parse @)
+        REMOTE=$(git rev-parse @{u})
+        if [ $LOCAL != $REMOTE ]; then
+            echo "Updating $REPO_NAME ..."
+            git reset --hard origin/$PV_VERSION --quiet
+            updated=true
+        else
+            echo "No updates to $REPO_NAME."
+            git reset --hard origin/$PV_VERSION --quiet
+            updated=true
+        fi
+    else
+        echo "Cloning $REPO_NAME for $PV_VERSION and $OS ..."
+        first_line=$(head -n 1 "$PARAVIEW_DIR/$TXT")
+        git clone --quiet --branch "$PV_VERSION" https://vcgitlab.iwr.uni-heidelberg.de/lmarks/$REPO_NAME.git "$PARAVIEW_DIR/$REPO_NAME"
+        updated=true
+    fi
+
+    source_dir="$PARAVIEW_DIR/plugins/Linux/lib"
+    destination_dir="$PV_INSTALL_DIR/lib"
+    # Move the plugins from the source directory to the destination directory
+    cp "$source_dir"/* "$destination_dir/"
+    # Print a line of hyphens that spans the width of the terminal
+    printf '%*s\n' "$WIDTH" '' | tr ' ' '-'
+
+    cd / && ."$PV_INSTALL_DIR"/bin/paraview --script ."$PARAVIEW_DIR"/plugins/load_plugins.py
+fi
